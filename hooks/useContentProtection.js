@@ -1,9 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export function useContentProtection() {
   const [blurActive, setBlurActive] = useState(false);
   const [blockCount, setBlockCount] = useState(0);
   const [logs, setLogs] = useState([]);
+  const [attempts, setAttempts] = useState([]);
+  const sessionId = useMemo(() => {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+
+    return Math.random().toString(36).slice(2, 10);
+  }, []);
+
+  const recordAttempt = (method) => {
+    const timestamp = new Date();
+    const payload = {
+      method,
+      time: timestamp.toLocaleTimeString(),
+      iso: timestamp.toISOString(),
+    };
+
+    setAttempts((prev) => [payload, ...prev].slice(0, 4));
+    logBlock(`${method} attempt recorded`);
+
+    const body = JSON.stringify({
+      sessionId,
+      method,
+      timestamp: payload.iso,
+    });
+
+    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+      navigator.sendBeacon("/api/monitor", body);
+      return;
+    }
+
+    fetch("/api/monitor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }).catch(() => {});
+  };
 
   function logBlock(msg) {
     setBlockCount((c) => c + 1);
@@ -40,8 +77,9 @@ export function useContentProtection() {
       if (k === "printscreen") {
         e.preventDefault();
         setBlurActive(true);
-        setTimeout(() => setBlurActive(false), 180000);
+        setTimeout(() => setBlurActive(false), 1800);
         logBlock("PrintScreen blocked");
+        recordAttempt("printscreen");
         return;
       }
       if (ctrl && k === "p") { e.preventDefault(); logBlock("Ctrl+P (print) blocked"); return; }
@@ -59,6 +97,7 @@ export function useContentProtection() {
       logBlock("Print dialog suppressed");
       document.body.style.visibility = "hidden";
       setTimeout(() => { document.body.style.visibility = "visible"; }, 100);
+      recordAttempt("print");
     };
 
     const handleAfterPrint = () => {
@@ -88,5 +127,5 @@ export function useContentProtection() {
     };
   }, []);
 
-  return { blurActive, blockCount, logs };
+  return { blurActive, blockCount, logs, attempts, sessionId };
 }
