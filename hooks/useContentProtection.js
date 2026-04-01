@@ -1,54 +1,67 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+function generateSessionId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const values = new Uint8Array(8);
+    crypto.getRandomValues(values);
+    return Array.from(values)
+      .map((value) => value.toString(36).padStart(2, "0"))
+      .join("")
+      .slice(0, 8);
+  }
+
+  return "00000000";
+}
 
 export function useContentProtection() {
   const [blurActive, setBlurActive] = useState(false);
   const [blockCount, setBlockCount] = useState(0);
   const [logs, setLogs] = useState([]);
   const [attempts, setAttempts] = useState([]);
-  const sessionId = useMemo(() => {
-    if (typeof crypto !== "undefined" && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
+  const sessionId = useMemo(() => generateSessionId(), []);
 
-    return Math.random().toString(36).slice(2, 10);
-  }, []);
+  const recordAttempt = useCallback(
+    (method) => {
+      const timestamp = new Date();
+      const payload = {
+        method,
+        time: timestamp.toLocaleTimeString(),
+        iso: timestamp.toISOString(),
+      };
 
-  const recordAttempt = (method) => {
-    const timestamp = new Date();
-    const payload = {
-      method,
-      time: timestamp.toLocaleTimeString(),
-      iso: timestamp.toISOString(),
-    };
+      setAttempts((prev) => [payload, ...prev].slice(0, 4));
 
-    setAttempts((prev) => [payload, ...prev].slice(0, 4));
-    logBlock(`${method} attempt recorded`);
+      const body = JSON.stringify({
+        sessionId,
+        method,
+        timestamp: payload.iso,
+      });
 
-    const body = JSON.stringify({
-      sessionId,
-      method,
-      timestamp: payload.iso,
-    });
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon("/api/monitor", body);
+        return;
+      }
 
-    if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-      navigator.sendBeacon("/api/monitor", body);
-      return;
-    }
+      fetch("/api/monitor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      }).catch(() => {});
+    },
+    [sessionId]
+  );
 
-    fetch("/api/monitor", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    }).catch(() => {});
-  };
-
-  function logBlock(msg) {
+  const logBlock = useCallback((msg) => {
     setBlockCount((c) => c + 1);
     setLogs((prev) => [
       { time: new Date().toLocaleTimeString(), msg },
       ...prev.slice(0, 19),
     ]);
-  }
+  }, []);
 
   useEffect(() => {
     const handleContextMenu = (e) => {
@@ -125,7 +138,7 @@ export function useContentProtection() {
       window.removeEventListener("beforeprint", handleBeforePrint);
       window.removeEventListener("afterprint", handleAfterPrint);
     };
-  }, []);
+  }, [logBlock, recordAttempt]);
 
   return { blurActive, blockCount, logs, attempts, sessionId };
 }
