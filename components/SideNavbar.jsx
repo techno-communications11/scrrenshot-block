@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { name: "Dashboard", href: "/", icon: Home },
+  { name: "Wall Of Frame", href: "/", icon: Home },
   { name: "Ranker", href: "/ranker", icon: Activity },
   { name: "Happening", href: "/HappeningSection", icon: Sparkles },
   { name: "Criteria", href: "/criteria", icon: ClipboardCheck },
